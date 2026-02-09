@@ -1,5 +1,6 @@
 import time
 from hashlib import sha256
+import multiprocessing as mp
 
 
 PASSWORDS_TO_BRUTE_FORCE = [
@@ -20,13 +21,46 @@ def sha256_hash_str(to_hash: str) -> str:
     return sha256(to_hash.encode("utf-8")).hexdigest()
 
 
+# Ця функція виконує реальний перебір у заданому діапазоні
+def brute_range_print(process_idx: int, start: int, end: int) -> None:
+    print(f"Process {process_idx} started: range {start} to {end}")
+    for i in range(start, end):
+        # Форматуємо число в 8-значний рядок (00000000)
+        candidate = f"{i:08d}"
+        h = sha256_hash_str(candidate)
+
+        if h in PASSWORDS_TO_BRUTE_FORCE:
+            print(f"\n[!] Process {process_idx} found password: {candidate} for hash {h}")
+    print(f"Process {process_idx} finished.")
+
+
 def brute_force_password() -> None:
-    pass
+    num_processes = mp.cpu_count()  # Використовуємо всі ядра
+    total_combinations = 100_000_000
+    step = total_combinations // num_processes
+
+    results = []
+    for i in range(num_processes):
+        start = i * step
+        # Останній процес забирає залишок до кінця
+        end = (i + 1) * step if i != num_processes - 1 else total_combinations
+
+        results.append(
+            mp.Process(
+                target=brute_range_print, args=(i, start, end,),
+            )
+        )
+        results[-1].start()
+
+    for result in results:
+        result.join()
 
 
 if __name__ == "__main__":
+    mp.freeze_support()
+
     start_time = time.perf_counter()
     brute_force_password()
     end_time = time.perf_counter()
 
-    print("Elapsed:", end_time - start_time)
+    print("\nElapsed:", end_time - start_time)
