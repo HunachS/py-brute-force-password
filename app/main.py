@@ -1,8 +1,9 @@
 import time
 from hashlib import sha256
 import multiprocessing as mp
+from typing import List, Any
 
-
+# Використовуємо set для швидкої перевірки (O(1))
 PASSWORDS_TO_BRUTE_FORCE = {
     "b4061a4bcfe1a2cbf78286f3fab2fb578266d1bd16c414c650c5ac04dfc696e1",
     "cf0b0cfc90d8b4be14e00114827494ed5522e9aa1c7e6960515b58626cad0b44",
@@ -21,47 +22,84 @@ def sha256_hash_str(to_hash: str) -> str:
     return sha256(to_hash.encode("utf-8")).hexdigest()
 
 
-# Ця функція виконує реальний перебір у заданому діапазоні
-def brute_range_print(process_idx: int, start: int, end: int) -> None:
-    print(f"Process {process_idx} started: range {start} to {end}")
+def brute_range_print(
+        process_idx: int,
+        start: int,
+        end: int,
+        shared_results: Any,
+        stop_event: Any
+) -> None:
+    print(f"Process {process_idx} started: "
+          f"range {start} to {end}", flush=True)
+
     for i in range(start, end):
-        # Форматуємо число в 8-значний рядок (00000000)
+        if i % 5000 == 0 and stop_event.is_set():
+            break
+
         candidate = f"{i:08d}"
         unh = sha256_hash_str(candidate)
 
         if unh in PASSWORDS_TO_BRUTE_FORCE:
-            print(f"\n[!] Process {process_idx} found password: "
-                  f"{candidate} for hash {unh}")
+            shared_results.append(candidate)
+            print(f"\n[!] Process {process_idx} "
+                  f"found password: {candidate} "
+                  f"for hash {unh}", flush=True)
+
+            if len(shared_results) >= 10:
+                stop_event.set()
+                break
+
     print(f"Process {process_idx} finished.")
 
 
-def brute_force_password() -> None:
-    num_processes = mp.cpu_count()  # Використовуємо всі ядра
+def brute_force_password() -> List[str]:
+    num_processes = mp.cpu_count()
     total_combinations = 100_000_000
     step = total_combinations // num_processes
 
-    results = []
-    for i in range(num_processes):
-        start = i * step
-        # Останній процес забирає залишок до кінця
-        end = (i + 1) * step if i != num_processes - 1 else total_combinations
+    with mp.Manager() as manager:
+        shared_results: Any = manager.list()
+        stop_event: Any = manager.Event()
 
-        results.append(
-            mp.Process(
-                target=brute_range_print, args=(i, start, end,),
+        processes: List[mp.Process] = []
+        for i in range(num_processes):
+            start = i * step
+            if i != num_processes - 1:
+                end = (i + 1) * step
+            else:
+                end = total_combinations
+
+            process = mp.Process(
+                target=brute_range_print,
+                args=(i, start, end, shared_results, stop_event),
             )
-        )
-        results[-1].start()
+            processes.append(process)
+            process.start()
 
-    for result in results:
-        result.join()
+        for pr in processes:
+            pr.join()
+
+        return list(shared_results)
 
 
 if __name__ == "__main__":
     mp.freeze_support()
 
     start_time = time.perf_counter()
-    brute_force_password()
+
+    found_passwords = brute_force_password()
+
     end_time = time.perf_counter()
 
-    print("\nElapsed:", end_time - start_time)
+    print("\n" + "=" * 20)
+    print("FINAL PASSWORDS:")
+    for pwd in sorted(found_passwords):
+        print(pwd)
+    print("=" * 20)
+
+    print(f"\nElapsed: {end_time - start_time:.2f} seconds")
+
+    assert len(found_passwords) == 10, (f"Error: "
+                                        f"Expected 10 passwords, "
+                                        f"found {len(found_passwords)}"
+                                        )
