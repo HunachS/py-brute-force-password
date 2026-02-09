@@ -1,10 +1,10 @@
 import time
 from hashlib import sha256
 import multiprocessing as mp
-from typing import List, Any
+from typing import List, Any, Set
 
-# Використовуємо set для швидкої перевірки (O(1))
-PASSWORDS_TO_BRUTE_FORCE = {
+
+PASSWORDS_TO_BRUTE_FORCE: Set[str] = {
     "b4061a4bcfe1a2cbf78286f3fab2fb578266d1bd16c414c650c5ac04dfc696e1",
     "cf0b0cfc90d8b4be14e00114827494ed5522e9aa1c7e6960515b58626cad0b44",
     "e34efeb4b9538a949655b788dcb517f4a82e997e9e95271ecd392ac073fe216d",
@@ -33,17 +33,18 @@ def brute_range_print(
           f"range {start} to {end}", flush=True)
 
     for i in range(start, end):
-        if i % 5000 == 0 and stop_event.is_set():
+        if stop_event.is_set():
             break
 
-        candidate = f"{i:08d}"
-        unh = sha256_hash_str(candidate)
+        candidate: str = f"{i:08d}"
+        unh: str = sha256_hash_str(candidate)
 
         if unh in PASSWORDS_TO_BRUTE_FORCE:
-            shared_results.append(candidate)
-            print(f"\n[!] Process {process_idx} "
-                  f"found password: {candidate} "
-                  f"for hash {unh}", flush=True)
+            if candidate not in shared_results:
+                shared_results.append(candidate)
+                print(f"\n[!] Process {process_idx} "
+                      f"found password: {candidate} "
+                      f"for hash {unh}", flush=True)
 
             if len(shared_results) >= 10:
                 stop_event.set()
@@ -53,21 +54,18 @@ def brute_range_print(
 
 
 def brute_force_password() -> List[str]:
-    num_processes = mp.cpu_count()
-    total_combinations = 100_000_000
-    step = total_combinations // num_processes
+    num_processes: int = mp.cpu_count()
+    total_combinations: int = 100_000_000
+    step: int = total_combinations // num_processes
 
-    with mp.Manager() as manager:
+    with (mp.Manager() as manager):
         shared_results: Any = manager.list()
         stop_event: Any = manager.Event()
 
         processes: List[mp.Process] = []
         for i in range(num_processes):
-            start = i * step
-            if i != num_processes - 1:
-                end = (i + 1) * step
-            else:
-                end = total_combinations
+            start: int = i * step
+            end=(i + 1) * step if i != num_processes - 1 else total_combinations
 
             process = mp.Process(
                 target=brute_range_print,
@@ -85,21 +83,20 @@ def brute_force_password() -> List[str]:
 if __name__ == "__main__":
     mp.freeze_support()
 
-    start_time = time.perf_counter()
+    start_time: float = time.perf_counter()
+    found_passwords_raw: List[str] = brute_force_password()
+    end_time: float = time.perf_counter()
 
-    found_passwords = brute_force_password()
-
-    end_time = time.perf_counter()
+    unique_passwords: List[str] = sorted(list(set(found_passwords_raw)))
 
     print("\n" + "=" * 20)
-    print("FINAL PASSWORDS:")
-    for pwd in sorted(found_passwords):
+    print("FINAL UNIQUE PASSWORDS:")
+    for pwd in unique_passwords:
         print(pwd)
     print("=" * 20)
 
     print(f"\nElapsed: {end_time - start_time:.2f} seconds")
 
-    assert len(found_passwords) == 10, (f"Error: "
-                                        f"Expected 10 passwords, "
-                                        f"found {len(found_passwords)}"
-                                        )
+    assert len(unique_passwords) == 10, (
+        f"Error: Expected 10 unique passwords, found {len(unique_passwords)}"
+    )
